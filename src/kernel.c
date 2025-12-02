@@ -481,7 +481,7 @@ void kernel_main() {
 
                 if (argument[0] == '/') {
                     strncpy(full_path, "/", sizeof(full_path));
-                    strncat(full_path, argument + 1, sizeof(full_path) - strlen(full_path) - 1); // Voeg de directory toe
+                    strncat(full_path, argument + 1, sizeof(full_path) - strlen(full_path) - 1); 
                 } else {
                     if (strcmp(current_directory, "/") == 1) {
                         snprintf(full_path, sizeof(full_path), "/%s", argument);
@@ -492,7 +492,7 @@ void kernel_main() {
 
                 if (fs_is_directory(full_path)) {
                     strncpy(current_directory, full_path, sizeof(current_directory) - 1);
-                    current_directory[sizeof(current_directory) - 1] = '\0';  // Zorg ervoor dat de string null-terminated is
+                    current_directory[sizeof(current_directory) - 1] = '\0';  
                     print("Current directory: ");
                     print(current_directory);
                     print("\n");

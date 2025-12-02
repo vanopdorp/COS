@@ -73,7 +73,7 @@ void ata_identify() {
         data[i] = inw(ATA_DATA);
     }
     total_sectors = ((uint32_t)data[61] << 16) | data[60];
-    file_table_sectors = total_sectors / 100 * 3; // 1% van schijf voor bestandstabel
+    file_table_sectors = total_sectors / 100 * 3; // 3% of the file table for inodes
 }
 
 int fs_find_file_sector(const char* name) {
@@ -102,7 +102,6 @@ int fs_create_file(const char* name, const char* inhoud, uint32_t sector) {
         return -1;
     }
 
-    // Bouw regel "naam:sector\n"
     char regel[64];
     char sector_str[12];
     int temp = sector, len = 0;
@@ -125,12 +124,11 @@ int fs_create_file(const char* name, const char* inhoud, uint32_t sector) {
     int regel_len = 0;
     while (regel[regel_len] != '\0') regel_len++;
 
-    // Zoek vrije plek in bestandstabel
+
     for (uint32_t s = file_table_start; s < file_table_start + file_table_sectors; s++) {
         uint8_t buffer[SECTOR_SIZE];
         if (ata_read_sector(s, buffer) != 0) continue;
 
-        // Zoek naar eerste vrije positie: scan tot eerste 0-byte
         int pos = 0;
         while (pos < SECTOR_SIZE) {
             if (buffer[pos] == 0) break;
@@ -157,78 +155,65 @@ int fs_create_file(const char* name, const char* inhoud, uint32_t sector) {
 void fs_list_directory(const char* pad) {
     uint8_t buffer[SECTOR_SIZE];
     int pad_len = 0;
-    while (pad[pad_len] != '\0') pad_len++;  // Bereken de lengte van het opgegeven pad
+    while (pad[pad_len] != '\0') pad_len++; 
 
-    int is_root = (pad_len == 1 && pad[0] == '/');  // Controleer of we de root directory proberen
+    int is_root = (pad_len == 1 && pad[0] == '/');  
 
     for (uint32_t s = file_table_start; s < file_table_start + file_table_sectors; s++) {
-        if (ata_read_sector(s, buffer) != 0) continue;  // Fout bij het lezen van sector, ga verder
+        if (ata_read_sector(s, buffer) != 0) continue; 
 
         int i = 0;
         while (i < SECTOR_SIZE) {
             char naam[64];
             int len = 0;
 
-            // Lees de bestandsnaam tot aan ':' of tot we 63 tekens hebben
             while (i < SECTOR_SIZE && buffer[i] != ':' && len < 63) naam[len++] = buffer[i++];
-            naam[len] = '\0';  // Null-terminate de naam
-            if (buffer[i++] != ':') break;  // Verwacht een ':' na de naam, anders breek de loop
+            naam[len] = '\0';  
+            if (buffer[i++] != ':') break;  
 
             int sector = 0;
-            // Lees de sector
             while (i < SECTOR_SIZE && buffer[i] >= '0' && buffer[i] <= '9') {
                 sector = sector * 10 + (buffer[i++] - '0');
             }
-
-            // Zoek de volgende newline, overslaan
             while (i < SECTOR_SIZE && buffer[i] != '\n') i++;
-            if (i < SECTOR_SIZE) i++;  // Verwerk de newline
+            if (i < SECTOR_SIZE) i++;  
 
-            // Controleer of de naam overeenkomt met het pad
             int match = 0;
             if (is_root) {
-                // Rootdirectory ("/") is speciaal, we checken enkel of het pad begint met "/"
                 if (naam[0] == '/') match = 1;
             } else {
-                // Voor subdirectories moeten we controleren of de naam begint met het pad + "/"
                 if (strncmp(naam, pad, pad_len) == 1 && naam[pad_len] == '/') {
                     match = 1;
                 }
             }
 
-            // Als de naam overeenkomt en de sector geldig is, laat de naam zien
+
             if (match && sector > 0) {
                 int extra_slash = 0;
-                int start = pad_len + (is_root ? 0 : 1);  // Start van de naam, afhankelijk van of het root is
+                int start = pad_len + (is_root ? 0 : 1); 
 
-                // Zoek naar een '/' in de naam (dit betekent dat we met een directory te maken hebben)
                 for (int j = start; naam[j] != '\0'; j++) {
                     if (naam[j] == '/') {
-                        extra_slash = 1;  // Dit is een directory
+                        extra_slash = 1;  
                         break;
                     }
                 }
 
-                // Print de naam van het bestand of de subdirectory
                 print_color(" - ", 0x0F);
                 if (extra_slash) {
-                    // Subdirectory gevonden, toon de naam tot aan de eerste '/'
                     for (int j = start; naam[j] != '\0'; j++) {
                         if (naam[j] == '/') {
-                            naam[j + 1] = '\0';  // Truncate de naam bij de eerste '/'
+                            naam[j + 1] = '\0'; 
                             break;
                         }
                     }
-
-                    // Vermijd dubbele slashes in de naam
                     if (naam[start] == '/') {
-                        start++;  // Verwijder de extra '/' aan het begin van de naam
+                        start++;
                     }
                     
                     print(&naam[start]);
-                    print("/");  // Voeg een "/" toe om het als directory aan te geven
+                    print("/"); 
                 } else {
-                    // Gewoon bestand
                     print(&naam[start]);
                 }
                 print("\n");
@@ -244,7 +229,7 @@ int fs_write_text_sector(uint32_t lba, const char* tekst) {
     return ata_write_sector(lba, buffer);
 }
 char* fs_read_text_sector(uint32_t lba) {
-    static uint8_t buffer[SECTOR_SIZE]; // let op: static!
+    static uint8_t buffer[SECTOR_SIZE];
     if (ata_read_sector(lba, buffer) != 0) return "";
     return (char*)buffer;
 }
@@ -259,13 +244,12 @@ char* fs_read_file(const char* name) {
     return fs_read_text_sector(sector);
     
 }
+// function to get all free file sectors on the disk
 int get_free_sector() {
     static uint8_t used[100000] = {0};  
-    // gebruikt sectoren bijhouden (0 = vrij, 1 = bezet)
 
     uint8_t buffer[SECTOR_SIZE];
 
-    // 1. Scan de file-table (heel kleine hoeveelheid disk reads)
     for (uint32_t s = file_table_start; s < file_table_start + file_table_sectors; s++) {
         if (ata_read_sector(s, buffer) != 0) continue;
 
@@ -274,33 +258,31 @@ int get_free_sector() {
             char naam[32];
             int len = 0;
 
-            // naam lezen
+            // reading name
             while (i < SECTOR_SIZE && buffer[i] != ':' && len < 31)
                 naam[len++] = buffer[i++];
             naam[len] = '\0';
 
             if (buffer[i++] != ':') break;
 
-            // sector nummer lezen
+            // reading sector number
             int sector = 0;
             while (i < SECTOR_SIZE && buffer[i] >= '0' && buffer[i] <= '9')
                 sector = sector * 10 + (buffer[i++] - '0');
 
-            // skip tot newline
             while (i < SECTOR_SIZE && buffer[i] != '\n') i++;
             if (i < SECTOR_SIZE) i++;
 
-            // geldige sector markeren
             if (sector > 0 && sector < total_sectors)
                 used[sector] = 1;
         }
     }
 
-    // 2. Zoek de eerste vrije sector (GEEN disk reads!)
+    // 2. search for first free sector
     uint32_t start = file_table_start + file_table_sectors;
     for (uint32_t s = start; s < total_sectors; s++) {
         if (used[s] == 0) {
-            return s;   // eerste vrije sector gevonden
+            return s;
         }
     }
 
@@ -334,39 +316,34 @@ int fs_file_exists(const char* name) {
     }
     return 0;
 }
-// Een functie om te controleren of het opgegeven pad een geldige directory is.
 int fs_is_directory(const char* pad) {
     uint8_t buffer[SECTOR_SIZE];
     
-    // Zoek naar de directory in de bestandstabel (bijv. controleren of pad bestaat)
     for (uint32_t s = file_table_start; s < file_table_start + file_table_sectors; s++) {
-        if (ata_read_sector(s, buffer) != 0) continue;  // Fout bij lezen van sector
+        if (ata_read_sector(s, buffer) != 0) continue;  // Fault by reading the sector
 
         int i = 0;
         while (i < SECTOR_SIZE) {
             char naam[64];
             int len = 0;
 
-            // Lees bestandsnaam
             while (i < SECTOR_SIZE && buffer[i] != ':' && len < 63) naam[len++] = buffer[i++];
-            naam[len] = '\0';  // Eindig de naam
+            naam[len] = '\0';  
 
-            if (buffer[i++] != ':') break;  // Verwacht een ":" na de naam
+            if (buffer[i++] != ':') break; 
 
             int sector = 0;
-            // Lees de sector
+            // Reads the sectors
             while (i < SECTOR_SIZE && buffer[i] >= '0' && buffer[i] <= '9') {
                 sector = sector * 10 + (buffer[i++] - '0');
             }
 
-            while (i < SECTOR_SIZE && buffer[i] != '\n') i++;  // Sla de newline over
+            while (i < SECTOR_SIZE && buffer[i] != '\n') i++;  // Skip the newline
 
-            // Vergelijk de directorynaam
             if (strcmp(naam, pad) == 0) {
-                return 1;  // De directory bestaat
+                return 1;  // directory exist
             }
         }
     }
 
-    return 0;  // Directory niet gevonden
-}
+    return 0;  // Directory not found
